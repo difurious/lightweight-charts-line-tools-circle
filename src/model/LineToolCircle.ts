@@ -37,6 +37,8 @@ import {
 	HitTestType,
 	ConstraintResult,
 	SnapAxis,
+	getToolCullingState,
+	OffScreenState,
 } from 'lightweight-charts-line-tools-core';
 import { LineToolCirclePaneView } from '../views/LineToolCirclePaneView';
 
@@ -475,5 +477,82 @@ export class LineToolCircle<HorzScaleItem> extends BaseLineTool<HorzScaleItem> {
 			snapAxis: 'time',
 		};
 	}
+
+	/**
+	 * Calculates the Circle's visibility based on its screen-space bounding box.
+	 * 
+	 * ### Tutorial Note on Circle Culling
+	 * Unlike lines, a Circle's visibility is tricky because the relationship between 
+	 * Price and Time units is not constant. A "logical" circle would warp as you zoom.
+	 * 
+	 * To cull this accurately, we perform a "Round Trip" calculation:
+	 * 1. Convert the logical Center and Radius points to screen pixels.
+	 * 2. Calculate the actual visual radius in pixels.
+	 * 3. Construct a bounding box (Top-Left/Bottom-Right) around that visual circle.
+	 * 4. Convert those corner pixels back to logical points.
+	 * 5. Pass those logical bounds to the culling engine.
+	 * 
+	 * This ensures the circle is only hidden when its actual rendered pixels 
+	 * leave the viewport.
+	 * 
+	 * @protected
+	 * @override
+	 */
+	protected override updateCullingState(): void {
+		// 1. Skip culling during interaction to prevent flickering while drawing/dragging.
+		// This matches the boolean guard exactly from the original View logic.
+		if (this.getPermanentPointsCount() < this.pointsCount || this.isCreating() || this.isEditing()) {
+			this._setIsCulled(false);
+			return;
+		}
+
+		// --- CULLING IMPLEMENTATION START ---
+
+		// We get the points from this.points() to ensure we are seeing the exact 
+		// same data the View's _updatePoints() method would see.
+		const currentPoints = this.points();
+		const P0_logical = currentPoints[0]; // Center
+		const P1_logical = currentPoints[1]; // Radius Point
+
+		if (P0_logical && P1_logical) {
+			// Convert logical points to screen coordinates to find the VISUAL radius.
+			// This replaces the View's 'this._points' cache.
+			const P0_screen = this.pointToScreenPoint(P0_logical);
+			const P1_screen = this.pointToScreenPoint(P1_logical);
+
+			if (P0_screen && P1_screen) {
+				// Calculate the visual screen radius (the actual pixel distance)
+				const screenRadius = P0_screen.subtract(P1_screen).length();
+
+				// Synthesize the Bounding Box corners in SCREEN SPACE
+				// This matches your 'BoundingBoxScreen' logic exactly.
+				const BoundingBoxScreen: Point[] = [
+					new Point((P0_screen.x - screenRadius) as Coordinate, (P0_screen.y - screenRadius) as Coordinate),
+					new Point((P0_screen.x + screenRadius) as Coordinate, (P0_screen.y + screenRadius) as Coordinate)
+				];
+
+				// Convert those screen pixels back to Logical space for the culling engine
+				const BoundingPointsLogical: LineToolPoint[] = [];
+				BoundingBoxScreen.forEach(screenPoint => {
+					const logicalPoint = this.screenPointToPoint(screenPoint);
+					if (logicalPoint) BoundingPointsLogical.push(logicalPoint);
+				});
+
+				// Run the final geometric check using the 2 logical bounding points
+				if (BoundingPointsLogical.length === 2) {
+					const cullingState = getToolCullingState(BoundingPointsLogical, this);
+					this._setIsCulled(cullingState !== OffScreenState.Visible);
+					return;
+				}
+			}
+		}
+
+		// Fail-safe: assume visible if math cannot be completed
+		this._setIsCulled(false);
+
+		// --- CULLING IMPLEMENTATION END ---
+	}
+
+		
 
 }

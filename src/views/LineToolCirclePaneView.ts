@@ -20,8 +20,6 @@ import {
 	PaneCursorType,
 	HitTestType,
 	LineToolHitTestData,
-	getToolCullingState,
-	OffScreenState,
 	HitTestResult,
 	TextRendererData,
 } from 'lightweight-charts-line-tools-core';
@@ -97,73 +95,18 @@ export class LineToolCirclePaneView<HorzScaleItem> extends LineToolPaneView<Horz
 			return;
 		}
 
-		const hasValidPoints = this._updatePoints();
-
-		// --- CULLING IMPLEMENTATION START (CORRECTED) ---
-
 		/**
-         * CULLING IMPLEMENTATION
-         *
-         * A simple logical AABB check is unreliable for a circle because a logical unit
-         * does not equal a pixel unit.
-         *
-         * **Logic:**
-         * 1. Get the logical Center (P0) and Radius (P0-P1).
-         * 2. Synthesize the bounding box (Top-Left/Bottom-Right) in **screen pixels** (where units are consistent).
-         * 3. Convert those 2 screen corner points back to **logical** time/price points.
-         * 4. Run `getToolCullingState` on those 2 final logical corner points. This correctly culls
-         *    the tool based on its current *screen-space* bounding box.
-         */
-		if (this._tool.getPermanentPointsCount() >= this._tool.pointsCount && !this._tool.isCreating() && !this._tool.isEditing()) {
-			
-			const P0_logical = this._tool.getPoint(0); // Center Logical Point
-			const P1_logical = this._tool.getPoint(1); // Radius Logical Point
-
-			const P0_screen = this._points[0]; // Center Screen Point
-			const P1_screen = this._points[1]; // Radius Screen Point
-
-			if (P0_logical && P1_logical && P0_screen && P1_screen) {
-				
-				// 1. Calculate the VISUAL screen radius (the actual rendered distance)
-				const screenRadius = P0_screen.subtract(P1_screen).length();
-
-				// 2. Synthesize the Bounding Box Corners in SCREEN SPACE
-				// This is the Top-Left and Bottom-Right corner of the bounding square.
-				const BoundingBoxScreen: Point[] = [
-					// Point 1: Top-Left (Min X, Min Y)
-					new Point(
-						(P0_screen.x - screenRadius) as Coordinate,
-						(P0_screen.y - screenRadius) as Coordinate 
-					),
-					// Point 2: Bottom-Right (Max X, Max Y)
-					new Point(
-						(P0_screen.x + screenRadius) as Coordinate,
-						(P0_screen.y + screenRadius) as Coordinate
-					)
-				];
-
-				// 3. Convert the Screen Bounding Box Corners back to LOGICAL Space
-				const BoundingPointsLogical: LineToolPoint[] = [];
-
-				BoundingBoxScreen.forEach(screenPoint => {
-					const logicalPoint = this._tool.screenPointToPoint(screenPoint);
-					if (logicalPoint) {
-						BoundingPointsLogical.push(logicalPoint);
-					}
-				});
-
-				// 4. Culling Check: Pass the Logical Bounding Box to the culler
-				if (BoundingPointsLogical.length === 2) {
-					const cullingState = getToolCullingState(BoundingPointsLogical, this._tool);
-
-					if (cullingState !== OffScreenState.Visible) {
-						console.log('circle culled')
-						return;
-					}
-				}
-			}
+		 * CULLING CHECK
+		 * 
+		 * We query the Model's pre-calculated state. For the Circle, this state 
+		 * accounts for the visual pixel-radius converted back to logical space.
+		 */
+		if (this._tool.isCulled()) {
+			//console.log('circle culled')
+			return;
 		}
-		// --- CULLING IMPLEMENTATION END ---
+
+		const hasValidPoints = this._updatePoints();
 
 		if (!hasValidPoints || this._points.length < 2) {
 			return;
