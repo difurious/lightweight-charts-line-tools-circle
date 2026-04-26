@@ -3,3 +3,4 @@
 docs
 package-lock.json
 my_patches
+/package-lock.json
